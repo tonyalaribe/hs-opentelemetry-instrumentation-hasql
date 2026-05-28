@@ -62,7 +62,7 @@ import Hasql.Session
 import qualified Hasql.Session as Session
 import Hasql.Statement (Statement (..))
 
-import OpenTelemetry.Attributes (Attribute, ToAttribute (..))
+import OpenTelemetry.Attributes (Attribute, ToAttribute (..), emptyAttributes)
 import OpenTelemetry.Trace.Core
   ( InstrumentationLibrary (..)
   , Span
@@ -89,7 +89,7 @@ instrumentation =
     { libraryName = "hs-opentelemetry-instrumentation-hasql"
     , libraryVersion = "0.1.0.0"
     , librarySchemaUrl = ""
-    , libraryAttributes = mempty
+    , libraryAttributes = emptyAttributes
     }
 
 getTracer :: MonadIO m => m Tracer
