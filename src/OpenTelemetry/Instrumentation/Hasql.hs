@@ -50,15 +50,15 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import GHC.Stack (HasCallStack)
 
+import Hasql.Errors
+  ( CommandError (..)
+  , ResultError (..)
+  , SessionError (..)
+  )
 import Hasql.Pool (Pool, UsageError (..))
 import qualified Hasql.Pool as Pool
 import qualified Hasql.Pool.Config as PoolConfig
-import Hasql.Session
-  ( CommandError (..)
-  , ResultError (..)
-  , Session
-  , SessionError (..)
-  )
+import Hasql.Session (Session)
 import qualified Hasql.Session as Session
 import Hasql.Statement (Statement (..))
 
