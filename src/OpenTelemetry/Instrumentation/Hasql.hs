@@ -62,7 +62,7 @@ import qualified Hasql.Pool as Pool
 import qualified Hasql.Pool.Config as PoolConfig
 import Hasql.Session (Session)
 import qualified Hasql.Session as Session
-import Hasql.Statement (Statement (..))
+import Hasql.Statement (Statement, toSql)
 
 import OpenTelemetry.Attributes (Attribute, ToAttribute (..), emptyAttributes)
 import OpenTelemetry.Trace.Core
@@ -234,8 +234,8 @@ useStatement
   -> params
   -> Statement params a
   -> m (Either UsageError a)
-useStatement tp params st@(Statement sqlBs _ _ _) =
-  let sqlTxt = TE.decodeUtf8Lenient sqlBs
+useStatement tp params st =
+  let sqlTxt = toSql st
       op = extractOperationName sqlTxt
       name = case (op, saDbName (poolAttrs tp)) of
         (Just o, Just db) -> o <> " " <> db
@@ -354,6 +354,6 @@ extractOperationName t = case T.words (T.toUpper (T.take 64 t)) of
   where
     isAlphaUpper c = c >= 'A' && c <= 'Z'
 
--- | Get the SQL bytes from a 'Statement'.
-extractStatementSql :: Statement p r -> ByteString
-extractStatementSql (Statement sqlBs _ _ _) = sqlBs
+-- | Get the SQL template text from a 'Statement'.
+extractStatementSql :: Statement p r -> Text
+extractStatementSql = toSql
