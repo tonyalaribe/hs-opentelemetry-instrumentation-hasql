@@ -51,9 +51,11 @@ import qualified Data.Text.Encoding as TE
 import GHC.Stack (HasCallStack)
 
 import Hasql.Errors
-  ( CommandError (..)
-  , ResultError (..)
+  ( IsError (..)
+  , ServerError (..)
   , SessionError (..)
+  , StatementError (..)
+  , toDetailedText
   )
 import Hasql.Pool (Pool, UsageError (..))
 import qualified Hasql.Pool as Pool
@@ -298,50 +300,48 @@ recordUsageError sp = \case
     setStatus sp (Error "hasql: pool acquisition timeout")
   ConnectionUsageError ce -> do
     addAttribute sp "error.type" ("connection" :: Text)
-    setStatus sp (Error (T.pack ("hasql connection error: " <> show ce)))
+    setStatus sp (Error ("hasql connection error: " <> toDetailedText ce))
   SessionUsageError se -> recordSessionError sp se
 
 recordSessionError :: MonadIO m => Span -> SessionError -> m ()
 recordSessionError sp = \case
-  QueryError sqlBs _params ce -> do
-    addAttribute sp "db.statement" (TE.decodeUtf8Lenient sqlBs)
-    recordCommandError sp ce
-  PipelineError ce -> do
-    addAttribute sp "db.operation.name" ("BATCH" :: Text)
-    recordCommandError sp ce
+  StatementSessionError _total _idx sql _params _prep stErr -> do
+    addAttribute sp "db.statement" sql
+    recordStatementError sp stErr
+  ScriptSessionError sql se -> do
+    addAttribute sp "db.statement" sql
+    recordServerError sp se
+  ConnectionSessionError reason -> do
+    addAttribute sp "error.type" ("connection" :: Text)
+    setStatus sp (Error ("hasql connection error: " <> reason))
+  MissingTypesSessionError _ -> do
+    addAttribute sp "error.type" ("missing_types" :: Text)
+    setStatus sp (Error "hasql: missing types in database")
+  DriverSessionError reason -> do
+    addAttribute sp "error.type" ("driver" :: Text)
+    setStatus sp (Error ("hasql driver error: " <> reason))
 
-recordCommandError :: MonadIO m => Span -> CommandError -> m ()
-recordCommandError sp = \case
-  ClientError mbMsg -> do
-    addAttribute sp "error.type" ("client" :: Text)
-    setStatus sp (Error (T.pack ("hasql client error: " <> maybe "" BS8.unpack mbMsg)))
-  ResultError re -> do
+recordStatementError :: MonadIO m => Span -> StatementError -> m ()
+recordStatementError sp = \case
+  ServerStatementError se -> do
     addAttribute sp "error.type" ("result" :: Text)
-    recordResultError sp re
+    recordServerError sp se
+  UnexpectedRowCountStatementError _ _ actual ->
+    setStatus sp (Error ("unexpected amount of rows: " <> T.pack (show actual)))
+  UnexpectedColumnCountStatementError expected actual ->
+    setStatus sp (Error ("unexpected column count: expected " <> T.pack (show expected) <> ", got " <> T.pack (show actual)))
+  UnexpectedColumnTypeStatementError col expOid actOid ->
+    setStatus sp (Error ("unexpected column type at col=" <> T.pack (show col) <> ": expected oid " <> T.pack (show expOid) <> ", got " <> T.pack (show actOid)))
+  RowStatementError row rowErr ->
+    setStatus sp (Error ("row error at row=" <> T.pack (show row) <> " " <> T.pack (show rowErr)))
+  UnexpectedResultStatementError t ->
+    setStatus sp (Error ("unexpected result: " <> t))
 
-recordResultError :: MonadIO m => Span -> ResultError -> m ()
-recordResultError sp = \case
-  ServerError code msg _detail _hint _pos -> do
-    let codeT = TE.decodeUtf8Lenient code
-        msgT = TE.decodeUtf8Lenient msg
-    addAttribute sp "db.response.status_code" codeT
-    addAttribute sp "error.type" codeT
-    setStatus sp (Error (codeT <> ": " <> msgT))
-  UnexpectedResult t -> setStatus sp (Error ("unexpected result: " <> t))
-  RowError row col rowErr ->
-    setStatus
-      sp
-      ( Error
-          ( "row error at row="
-              <> T.pack (show row)
-              <> " col="
-              <> T.pack (show col)
-              <> " "
-              <> T.pack (show rowErr)
-          )
-      )
-  UnexpectedAmountOfRows n ->
-    setStatus sp (Error ("unexpected amount of rows: " <> T.pack (show n)))
+recordServerError :: MonadIO m => Span -> ServerError -> m ()
+recordServerError sp (ServerError code msg _detail _hint _pos) = do
+  addAttribute sp "db.response.status_code" code
+  addAttribute sp "error.type" code
+  setStatus sp (Error (code <> ": " <> msg))
 
 -- ---------------------------------------------------------------------------
 -- SQL inspection helpers
